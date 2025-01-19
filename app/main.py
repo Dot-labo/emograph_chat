@@ -215,10 +215,10 @@ async def main():
         isinstance(st.session_state.current_outputs, list) and 
         len(st.session_state.current_outputs) > 0 and 
         not st.session_state.get("selected_response", False)):
-        
+
         st.write("以下の案から選んでください：")
         cols = st.columns(len(st.session_state.current_outputs))
-        
+
         for i, output in enumerate(st.session_state.current_outputs):
             with cols[i]:
                 st.write(f"案 {i+1}")
