@@ -166,7 +166,6 @@ async def main():
         model_name="gpt-4o",
         temperature=0.7,
         streaming=True,
-        callback_manager=callback_manager,
         api_key=os.getenv("OPENAI_API_KEY")
     ).with_structured_output(
         OutputSchema,
