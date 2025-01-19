@@ -11,3 +11,8 @@ wheels/
 
 # .env
 .env
+
+# config
+config/*
+!config/.gitignore
+!config/*_template.yml

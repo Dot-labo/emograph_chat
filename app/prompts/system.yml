@@ -1,5 +1,0 @@
-prompt:
-  role: system
-  content: |
-    write here
-  format_args: []

@@ -6,9 +6,10 @@ from pydantic import BaseModel, Field
 import streamlit as st
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_community.callbacks import StreamlitCallbackHandler
-from langchain_anthropic import ChatAnthropic
+#from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 from langchain.callbacks.manager import CallbackManager
+from emograph import Builder
 
 dotenv.load_dotenv()
 
@@ -46,10 +47,11 @@ class RectangleSize(BaseModel):
 
 
 class BaseElement(BaseModel):
-    type: str = Field(..., description="要素のタイプ")
+    type: Literal["emoji", "arrow", "text", "shape"] = Field(..., description="要素のタイプ")
 
 
 class EmojiElement(BaseElement):
+    type: Literal["emoji"] = Field(..., description="要素のタイプ")
     id: str = Field(..., description="要素のID")
     emoji: str = Field(..., description="絵文字")
     position: Position = Field(..., description="位置")
@@ -60,6 +62,7 @@ class EmojiElement(BaseElement):
 
 
 class TextElement(BaseElement):
+    type: Literal["text"] = Field(..., description="要素のタイプ")
     id: str = Field(..., description="要素のID")
     content: str = Field(..., description="テキストの内容")
     position: Position = Field(..., description="位置")
@@ -69,35 +72,20 @@ class TextElement(BaseElement):
     rotation: Optional[int] = Field(default=None, description="回転角度")
 
 
-class BaseShapeElement(BaseElement):
+class ShapeElement(BaseElement):
+    type: Literal["shape"] = Field(..., description="要素のタイプ")
+    shape: Literal["circle", "rectangle", "line"] = Field(..., description="形状")
     id: str = Field(..., description="要素のID")
     color: str = Field(..., description="色")
     thickness: int = Field(..., description="太さ")
+    size: Optional[Union[CircleSize, RectangleSize]] = Field(default=None, description="サイズ（円の場合は円の直径、矩形の場合は矩形の横幅と縦幅、線の場合はNone）")
+    position: Optional[Union[Position, LinePosition]] = Field(default=None, description="位置（円と矩形の場合はPosition、線の場合はLinePosition）")
     rotation: Optional[int] = Field(default=None, description="回転角度")
     caption: Optional[Caption] = Field(default=None, description="キャプション")
 
 
-class CircleElement(BaseShapeElement):
-    shape: str = Field("circle", description="形状")
-    size: CircleSize = Field(..., description="サイズ")
-    position: Position = Field(..., description="位置")
-
-
-class RectangleElement(BaseShapeElement):
-    shape: str = Field("rectangle", description="形状")
-    size: RectangleSize = Field(..., description="サイズ")
-    position: Position = Field(..., description="位置")
-
-
-class LineElement(BaseShapeElement):
-    shape: str = Field("line", description="形状")
-    position: LinePosition = Field(..., description="線の位置")
-
-
-ShapeElement = Union[CircleElement, RectangleElement, LineElement]
-
-
 class ArrowElement(BaseElement):
+    type: Literal["arrow"] = Field(..., description="要素のタイプ")
     start_id: str = Field(..., description="始点のID")
     end_id: str = Field(..., description="終点のID")
     color: str = Field(..., description="矢印の色")
@@ -122,8 +110,14 @@ class OutputSchema(BaseModel):
     emograph_blueprint: EmographBlueprint = Field(..., description="解答に伴う心的描画の設計図")
 
 
+def load_system_config(file_path: str) -> dict:
+    with open(file_path, "r", encoding="utf-8") as file:
+        system_config = yaml.safe_load(file)
+    return system_config
+
+
 def load_prompt(file_path: str) -> SystemMessage | AIMessage | HumanMessage:
-    with open(file_path, "r") as file:
+    with open(file_path, "r", encoding="utf-8") as file:
         prompt_data = yaml.safe_load(file)["prompt"]
 
     if prompt_data["role"] == "system":
@@ -137,8 +131,9 @@ def load_prompt(file_path: str) -> SystemMessage | AIMessage | HumanMessage:
 
 
 def main():
-    st.title("森羅万象回答大臣Bot")
-    st.subheader("━━━教育を、取り戻す。")
+    system_config = load_system_config("config/system.yml")
+    st.title(system_config["ui"]["app_title"])
+    st.subheader(system_config["ui"]["app_subheader"])
 
     # Initialize chat history
     if "messages" not in st.session_state:
@@ -150,7 +145,7 @@ def main():
 
     st_callback = StreamlitCallbackHandler(st.container())
     callback_manager = CallbackManager([st_callback])
-    system_message = load_prompt("app/prompts/system.yml")
+    system_message = load_prompt("config/prompt.yml")
 
     llm = ChatOpenAI(
         model_name="gpt-4o",
@@ -159,8 +154,11 @@ def main():
         callback_manager=callback_manager,
         api_key=os.getenv("OPENAI_API_KEY")
     ).with_structured_output(
-        OutputSchema
+        OutputSchema,
+        method="json_schema"
     )
+
+    builder = Builder()
 
     if prompt := st.chat_input():
         # Add user message to chat history
@@ -177,19 +175,23 @@ def main():
                 elif msg["role"] == "assistant":
                     messages.append(AIMessage(content=msg["content"]))
 
-            output = llm.invoke(messages)
+            output: OutputSchema = llm.invoke(messages)
             ai_response = output.response
+            emograph_blueprint_dict = output.emograph_blueprint.model_dump()
             emograph_blueprint_yml = yaml.dump(
-                output.emograph_blueprint.model_dump(),
+                emograph_blueprint_dict,
                 indent=4
             )
-            response = f"{ai_response}\n\n```yaml\n{emograph_blueprint_yml}\n```"
+            st.write(ai_response)
+            with st.expander("設計図を表示"):
+                st.code(emograph_blueprint_yml, language="yaml")
 
-            # Show response
-            st.write(response)
+            # Show image
+            emograph_image = builder.get_generate_image(emograph_blueprint_dict)
+            st.image(emograph_image)
 
-            # Add assistant response to chat history
-            st.session_state.messages.append({"role": "assistant", "content": response})
+            # チャット履歴用のレスポンスを作成
+            st.session_state.messages.append({"role": "assistant", "content": ai_response})
 
 
 if __name__ == "__main__":

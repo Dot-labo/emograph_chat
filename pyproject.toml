@@ -10,4 +10,8 @@ dependencies = [
     "streamlit>=1.41.1",
     "langchain-community>=0.3.14",
     "langchain-openai>=0.3.0",
+    "emograph",
 ]
+
+[tool.uv.sources]
+emograph = { git = "https://github.com/Dot-labo/emograph.git" }
