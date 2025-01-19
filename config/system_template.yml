@@ -1,3 +1,4 @@
+title: "EmoGraph Chat"
 ui:
-  app_title: "EmoGraph Chat"
-  app_subheader: "図解と共に"
+  title: "EmoGraph Chat"
+  subheader: "図解と共に"

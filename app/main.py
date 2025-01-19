@@ -132,8 +132,11 @@ def load_prompt(file_path: str) -> SystemMessage | AIMessage | HumanMessage:
 
 def main():
     system_config = load_system_config("config/system.yml")
-    st.title(system_config["ui"]["app_title"])
-    st.subheader(system_config["ui"]["app_subheader"])
+    # ページの名前
+    st.set_page_config(page_title=system_config["title"], page_icon=":material/emoji_objects:")
+    # UI
+    st.title(system_config["ui"]["title"])
+    st.subheader(system_config["ui"]["subheader"])
 
     # Initialize chat history
     if "messages" not in st.session_state:
