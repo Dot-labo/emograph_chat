@@ -10,6 +10,7 @@ from langchain_community.callbacks import StreamlitCallbackHandler
 from langchain_openai import ChatOpenAI
 from langchain.callbacks.manager import CallbackManager
 from emograph import Builder
+import asyncio
 
 dotenv.load_dotenv()
 
@@ -130,7 +131,7 @@ def load_prompt(file_path: str) -> SystemMessage | AIMessage | HumanMessage:
         raise ValueError(f"Invalid role: {prompt_data['role']}")
 
 
-def main():
+async def main():
     system_config = load_system_config("config/system.yml")
     # ページの名前
     st.set_page_config(page_title=system_config["title"], page_icon=":material/emoji_objects:")
@@ -141,10 +142,21 @@ def main():
     # Initialize chat history
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    if "selected_response" not in st.session_state:
+        st.session_state.selected_response = False
+    if "current_outputs" not in st.session_state:
+        st.session_state.current_outputs = None
 
     # Display chat history
     for message in st.session_state.messages:
-        st.chat_message(message["role"]).write(message["content"])
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
+            if "additional" in message:
+                if "yaml" in message["additional"]:
+                    with st.expander("設計図を表示"):
+                        st.code(message["additional"]["yaml"], language="yaml")
+                if "image" in message["additional"]:
+                    st.image(message["additional"]["image"])
 
     st_callback = StreamlitCallbackHandler(st.container())
     callback_manager = CallbackManager([st_callback])
@@ -152,7 +164,7 @@ def main():
 
     llm = ChatOpenAI(
         model_name="gpt-4o",
-        temperature=0,
+        temperature=0.7,
         streaming=True,
         callback_manager=callback_manager,
         api_key=os.getenv("OPENAI_API_KEY")
@@ -163,39 +175,83 @@ def main():
 
     builder = Builder()
 
-    if prompt := st.chat_input():
-        # Add user message to chat history
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        st.chat_message("user").write(prompt)
+    # 新しい入力があった場合
+    if prompt := st.chat_input("何を表現したいですか？"):
+        with st.chat_message("user"):
+            st.write(prompt)
 
+        # ユーザーの入力を追加
+        st.session_state.messages.append({"role": "user", "content": prompt, "additional": []})
+        st.session_state.selected_response = False
+
+        # 応答を生成
         with st.chat_message("assistant"):
-            # Convert messages to LangChain message format
-            messages = []
-            messages.append(system_message)
-            for msg in st.session_state.messages:
-                if msg["role"] == "user":
-                    messages.append(HumanMessage(content=msg["content"]))
-                elif msg["role"] == "assistant":
-                    messages.append(AIMessage(content=msg["content"]))
+            with st.spinner("考え中..."):
+                messages = []
+                messages.append(system_message)
+                for msg in st.session_state.messages:
+                    if msg["role"] == "user":
+                        messages.append(HumanMessage(content=msg["content"]))
+                    elif msg["role"] == "assistant":
+                        messages.append(
+                            AIMessage(
+                                content=f"AI: {msg['content']}\n\n```yaml\n{msg['additional']['yaml']}\n```"
+                            )
+                        )
 
-            output: OutputSchema = llm.invoke(messages)
-            ai_response = output.response
-            emograph_blueprint_dict = output.emograph_blueprint.model_dump()
-            emograph_blueprint_yml = yaml.dump(
-                emograph_blueprint_dict,
-                indent=4
-            )
-            st.write(ai_response)
-            with st.expander("設計図を表示"):
-                st.code(emograph_blueprint_yml, language="yaml")
+                # 複数の応答を並行生成
+                async def generate_multiple_responses():
+                    tasks = [llm.ainvoke(messages) for _ in range(3)]  # 3つの応答を生成
+                    outputs = await asyncio.gather(*tasks)
+                    return outputs
 
-            # Show image
-            emograph_image = builder.get_generate_image(emograph_blueprint_dict)
-            st.image(emograph_image)
+                outputs = await generate_multiple_responses()
+                if outputs and len(outputs) > 0:
+                    st.session_state.current_outputs = outputs
+        st.rerun()  # 新しい状態で画面を更新
 
-            # チャット履歴用のレスポンスを作成
-            st.session_state.messages.append({"role": "assistant", "content": ai_response})
+    # 応答が生成されていて、まだ選択されていない場合に選択肢を表示
+    if ("current_outputs" in st.session_state and 
+        isinstance(st.session_state.current_outputs, list) and 
+        len(st.session_state.current_outputs) > 0 and 
+        not st.session_state.get("selected_response", False)):
+        
+        st.write("以下の案から選んでください：")
+        cols = st.columns(len(st.session_state.current_outputs))
+        
+        for i, output in enumerate(st.session_state.current_outputs):
+            with cols[i]:
+                st.write(f"案 {i+1}")
+                ai_response = output.response
+                emograph_blueprint_dict = output.emograph_blueprint.model_dump()
+                emograph_blueprint_yml = yaml.dump(
+                    emograph_blueprint_dict,
+                    indent=4
+                )
+                st.write(ai_response)
+                with st.expander("設計図を表示"):
+                    st.code(emograph_blueprint_yml, language="yaml")
+
+                # Show image
+                emograph_image = builder.get_generate_image(emograph_blueprint_dict)
+                st.image(emograph_image)
+
+                # 選択ボタン
+                if st.button("この案を採用", key=f"select_btn_{i}"):
+                    st.session_state.messages.append(
+                        {
+                            "role": "assistant",
+                            "content": ai_response,
+                            "additional": {
+                                "yaml": emograph_blueprint_yml,
+                                "image": emograph_image,
+                            }
+                        }
+                    )
+                    st.session_state.selected_response = True
+                    st.session_state.current_outputs = None
+                    st.rerun()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
