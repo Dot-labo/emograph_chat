@@ -3,74 +3,16 @@ import dotenv
 import yaml
 import asyncio
 import streamlit as st
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage
 #from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 from emograph import Builder as EmographBuilder
+from utils.common import format_yaml_for_display
+from utils.generation import agenerate_multiple_responses
 from utils.config import load_system_config, load_prompt
 from models.emograph import OutputSchema
 
 dotenv.load_dotenv()
-
-
-# 複数の応答を並行生成
-async def agenerate_with_retry(
-    llm: ChatOpenAI,
-    messages: list[SystemMessage | AIMessage | HumanMessage],
-    max_retries: int = 3,
-    delay: float = 1.0
-) -> OutputSchema:
-    """
-    リトライ機能付きの応答生成
-
-    Args:
-        llm (ChatOpenAI): 言語モデル
-        messages (list[SystemMessage | AIMessage | HumanMessage]): メッセージ
-        max_retries (int): 最大リトライ回数
-        delay (float): リトライ間の待機時間（秒）
-
-    Returns:
-        OutputSchema: 応答
-    """
-    for attempt in range(max_retries):
-        try:
-            return await llm.ainvoke(messages)
-        except Exception as e:
-            if attempt == max_retries - 1:  # 最後の試行で失敗した場合
-                raise e
-            await asyncio.sleep(delay * (attempt + 1))  # 指数バックオフ
-
-async def agenerate_multiple_responses(
-    llm: ChatOpenAI,
-    messages: list[SystemMessage | AIMessage | HumanMessage],
-    parallel_count: int = 3
-) -> list[OutputSchema]:
-    """
-    複数の応答を並行生成
-
-    Args:
-        llm (ChatOpenAI): 言語モデル
-        messages (list[SystemMessage | AIMessage | HumanMessage]): メッセージ
-        parallel_count (int): 並行生成数
-
-    Returns:
-        list[OutputSchema]: 応答のリスト
-    """
-    tasks = [agenerate_with_retry(llm, messages) for _ in range(parallel_count)]
-    outputs = await asyncio.gather(*tasks, return_exceptions=True)
-    
-    # エラーをフィルタリング
-    valid_outputs = [output for output in outputs if not isinstance(output, Exception)]
-    
-    return valid_outputs
-
-
-def convert_yaml_to_readable(yaml_content: str) -> str:
-    """
-    YAMLをマルチバイト対応の形式に変換
-    """
-    yaml_dict = yaml.safe_load(yaml_content)
-    return yaml.dump(yaml_dict, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 
 async def main():
@@ -106,7 +48,7 @@ async def main():
                 if "yaml" in message["additional"]:
                     with st.expander("設計図を表示・編集"):
                         # YAMLをマルチバイト対応の形式に変換
-                        readable_yaml = convert_yaml_to_readable(message["additional"]["yaml"])
+                        readable_yaml = format_yaml_for_display(message["additional"]["yaml"])
 
                         message_id = id(message)
                         edited_yaml = st.text_area(
@@ -198,7 +140,7 @@ async def main():
                 st.write(ai_response)
                 with st.expander("設計図を表示"):
                     # YAMLをマルチバイト対応の形式に変換
-                    readable_yaml = convert_yaml_to_readable(emograph_blueprint_yml)
+                    readable_yaml = format_yaml_for_display(emograph_blueprint_yml)
                     st.code(readable_yaml, language="yaml")
 
                 # Show image
