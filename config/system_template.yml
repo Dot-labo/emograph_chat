@@ -1,4 +1,6 @@
 title: "EmoGraph Chat"
+menu_items:
+  About: '# EmoGraph Chat\nデザインと感情を結びつけるチャットボット'
 ui:
   title: "EmoGraph Chat"
   subheader: "図解と共に"
