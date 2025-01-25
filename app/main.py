@@ -14,6 +14,32 @@ dotenv.load_dotenv()
 
 
 # 複数の応答を並行生成
+async def agenerate_with_retry(
+    llm: ChatOpenAI,
+    messages: list[SystemMessage | AIMessage | HumanMessage],
+    max_retries: int = 3,
+    delay: float = 1.0
+) -> OutputSchema:
+    """
+    リトライ機能付きの応答生成
+
+    Args:
+        llm (ChatOpenAI): 言語モデル
+        messages (list[SystemMessage | AIMessage | HumanMessage]): メッセージ
+        max_retries (int): 最大リトライ回数
+        delay (float): リトライ間の待機時間（秒）
+
+    Returns:
+        OutputSchema: 応答
+    """
+    for attempt in range(max_retries):
+        try:
+            return await llm.ainvoke(messages)
+        except Exception as e:
+            if attempt == max_retries - 1:  # 最後の試行で失敗した場合
+                raise e
+            await asyncio.sleep(delay * (attempt + 1))  # 指数バックオフ
+
 async def agenerate_multiple_responses(
     llm: ChatOpenAI,
     messages: list[SystemMessage | AIMessage | HumanMessage],
@@ -28,20 +54,38 @@ async def agenerate_multiple_responses(
         parallel_count (int): 並行生成数
 
     Returns:
-        list[OutputSchema]: 応答
+        list[OutputSchema]: 応答のリスト
     """
-    tasks = [llm.ainvoke(messages) for _ in range(parallel_count)]
-    outputs = await asyncio.gather(*tasks)
+    tasks = [agenerate_with_retry(llm, messages) for _ in range(parallel_count)]
+    outputs = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # エラーをフィルタリング
+    valid_outputs = [output for output in outputs if not isinstance(output, Exception)]
+    
+    return valid_outputs
 
-    return outputs
+
+def convert_yaml_to_readable(yaml_content: str) -> str:
+    """
+    YAMLをマルチバイト対応の形式に変換
+    """
+    yaml_dict = yaml.safe_load(yaml_content)
+    return yaml.dump(yaml_dict, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 
 async def main():
     # システム設定を読み込む
     system_config = load_system_config("config/system.yml")
 
-    # ページの名前
-    st.set_page_config(page_title=system_config["title"], page_icon=":material/emoji_objects:")
+    # ページの設定
+    st.set_page_config(
+        page_title=system_config["title"],
+        page_icon=":material/emoji_objects:",
+        layout="wide",
+        initial_sidebar_state="expanded",
+        menu_items=system_config["menu_items"]
+    )
+
     # UI
     st.title(system_config["ui"]["title"])
     st.subheader(system_config["ui"]["subheader"])
@@ -60,8 +104,30 @@ async def main():
             st.write(message["content"])
             if "additional" in message:
                 if "yaml" in message["additional"]:
-                    with st.expander("設計図を表示"):
-                        st.code(message["additional"]["yaml"], language="yaml")
+                    with st.expander("設計図を表示・編集"):
+                        # YAMLをマルチバイト対応の形式に変換
+                        readable_yaml = convert_yaml_to_readable(message["additional"]["yaml"])
+
+                        message_id = id(message)
+                        edited_yaml = st.text_area(
+                            "blueprint.yml",
+                            value=readable_yaml,
+                            height=300,
+                            key=f"yaml_editor_{message_id}_{len(st.session_state.messages)}"
+                        )
+                        # 編集内容を保存
+                        if edited_yaml != message["additional"]["yaml"]:
+                            # YAMLから画像を再生成
+                            try:
+                                yaml_dict = yaml.safe_load(edited_yaml)
+                                emograph_builder = EmographBuilder()
+                                new_image = emograph_builder.get_generate_image(yaml_dict)
+                                message["additional"]["yaml"] = edited_yaml
+                                message["additional"]["image"] = new_image
+                                st.rerun()  # 画面を更新して新しい画像を表示
+                            except Exception as e:
+                                st.error(f"設計図の形式が正しくありません: {str(e)}")
+
                 if "image" in message["additional"]:
                     st.image(message["additional"]["image"])
 
@@ -131,7 +197,9 @@ async def main():
                 )
                 st.write(ai_response)
                 with st.expander("設計図を表示"):
-                    st.code(emograph_blueprint_yml, language="yaml")
+                    # YAMLをマルチバイト対応の形式に変換
+                    readable_yaml = convert_yaml_to_readable(emograph_blueprint_yml)
+                    st.code(readable_yaml, language="yaml")
 
                 # Show image
                 emograph_image = emograph_builder.get_generate_image(emograph_blueprint_dict)
