@@ -3,6 +3,7 @@ import dotenv
 import yaml
 import asyncio
 import streamlit as st
+import streamlit_ace as st_ace
 from langchain_core.messages import HumanMessage, AIMessage
 #from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
@@ -51,11 +52,18 @@ async def main():
                         readable_yaml = format_yaml_for_display(message["additional"]["yaml"])
 
                         message_id = id(message)
-                        edited_yaml = st.text_area(
-                            "blueprint.yml",
+                        edited_yaml = st_ace.st_ace(
                             value=readable_yaml,
+                            language="yaml",
+                            theme="twilight",
+                            key=f"yaml_editor_{message_id}_{len(st.session_state.messages)}",
                             height=300,
-                            key=f"yaml_editor_{message_id}_{len(st.session_state.messages)}"
+                            auto_update=True,
+                            show_gutter=True,
+                            show_print_margin=True,
+                            wrap=True,
+                            font_size=14,
+                            tab_size=2
                         )
                         # 編集内容を保存
                         if edited_yaml != message["additional"]["yaml"]:
