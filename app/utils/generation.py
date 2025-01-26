@@ -37,7 +37,9 @@ async def agenerate_with_retry(
 async def agenerate_multiple_responses(
     llm: ChatOpenAI,
     messages: list[SystemMessage | AIMessage | HumanMessage],
-    parallel_count: int = 3
+    parallel_count: int = 3,
+    max_retries: int = 3,
+    delay: float = 1.0
 ) -> list[OutputSchema]:
     """
     複数の応答を並行生成
@@ -46,11 +48,13 @@ async def agenerate_multiple_responses(
         llm (ChatOpenAI): 言語モデル
         messages (list[SystemMessage | AIMessage | HumanMessage]): メッセージ
         parallel_count (int): 並行生成数
+        max_retries (int): 最大リトライ回数
+        delay (float): リトライ間の待機時間（秒）
 
     Returns:
         list[OutputSchema]: 応答のリスト
     """
-    tasks = [agenerate_with_retry(llm, messages) for _ in range(parallel_count)]
+    tasks = [agenerate_with_retry(llm, messages, max_retries, delay) for _ in range(parallel_count)]
     outputs = await asyncio.gather(*tasks, return_exceptions=True)
 
     # エラーをフィルタリング
