@@ -1,18 +1,22 @@
-[project]
+[tool.poetry]
 name = "emograph-chat"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.11"
-dependencies = [
-    "langchain-anthropic>=0.3.3",
-    "langchain>=0.3.14",
-    "streamlit>=1.41.1",
-    "langchain-community>=0.3.14",
-    "langchain-openai>=0.3.0",
-    "emograph",
-    "streamlit-ace>=0.1.1",
+packages = [
+    { include = "app" }
 ]
 
-[tool.uv.sources]
+[tool.poetry.dependencies]
+python = ">=3.11,<4.0"
+langchain-anthropic = ">=0.3.3"
+langchain = ">=0.3.14"
+streamlit = ">=1.41.1"
+langchain-community = ">=0.3.14"
+langchain-openai = ">=0.3.0"
+streamlit-ace = ">=0.1.1"
 emograph = { git = "https://github.com/Dot-labo/emograph.git" }
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
