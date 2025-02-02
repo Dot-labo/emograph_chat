@@ -22,6 +22,9 @@
 
 ## 起動方法
 
+poetry(v.2.0.0以上)をインストールしてください。
+
 ``` bash
-uv run streamlit run app/main.py
+poetry install
+poetry run streamlit run app/main.py
 ```
